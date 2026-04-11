@@ -1,0 +1,48 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  router:
+    build: .
+    container_name: localrouter
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:v0.6.5
+    container_name: open-webui
+    ports:
+      - "3000:8080"
+    environment:
+      OPENAI_API_BASE_URL: "http://localrouter:8000/v1"
+      OPENAI_API_KEY: "sk-dummy"
+      ENABLE_OLLAMA_API: "false"
+      OLLAMA_BASE_URL: ""
+      WEBUI_AUTH: "false"
+    volumes:
+      - open-webui_data:/app/backend/data
+    depends_on:
+      - router
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
+  open-webui_data:

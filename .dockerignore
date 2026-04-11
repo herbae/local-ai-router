@@ -1,0 +1,12 @@
+.venv/
+.git/
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+_bmad*/
+.claude/
+docs/
+tests/
+scripts/
+_bmad-output/
