@@ -1,0 +1,21 @@
+ollama:
+  base_url: "http://ollama:11434"
+  model: "gemma4:e4b"
+
+claude:
+  model: "claude-sonnet-4-20250514"
+
+classifier:
+  max_local_length: 500
+  code_patterns:
+    - "```"
+    - "def "
+    - "class "
+    - "import "
+    - "function "
+    - "const "
+    - "var "
+    - "SELECT "
+    - "CREATE TABLE"
+    - "async "
+    - "await "
