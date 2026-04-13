@@ -21,5 +21,9 @@ class Settings:
         self.code_patterns = classifier["code_patterns"]
         self.force_local_prefixes = classifier.get("force_local_prefixes", [])
 
+        llm_cls = self.config.get("llm_classifier", {})
+        self.llm_classifier_enabled = llm_cls.get("enabled", False)
+        self.llm_classifier_timeout = llm_cls.get("timeout", 10.0)
+
 
 settings = Settings()

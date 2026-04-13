@@ -7,6 +7,7 @@ from app.classifier import classify_prompt
 from app.clients.anthropic_client import call_claude
 from app.clients.ollama_client import call_ollama
 from app.config import settings
+from app.llm_classifier import llm_classify
 from app.models import ChatCompletionRequest
 
 logging.basicConfig(
@@ -28,6 +29,19 @@ async def chat_completions(request: ChatCompletionRequest):
 
     request_data = request.model_dump()
     request_data["messages"][-1]["content"] = clean_content
+
+    # Stage 2: if heuristics defaulted to local AND llm classifier enabled,
+    # ask the local model itself whether this needs cloud. Can only escalate.
+    if route == "local" and settings.llm_classifier_enabled:
+        llm_route = await llm_classify(
+            clean_content,
+            base_url=settings.ollama_base_url,
+            model=settings.ollama_model,
+            timeout=settings.llm_classifier_timeout,
+        )
+        if llm_route == "cloud":
+            logger.info("LLM classifier escalated local -> cloud")
+            route = "cloud"
 
     logger.info(
         "Route: %s | Prompt: %s",

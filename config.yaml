@@ -5,6 +5,14 @@ ollama:
 claude:
   model: "claude-sonnet-4-20250514"
 
+llm_classifier:
+  # When enabled, prompts that pass all heuristic checks (would default to
+  # local) get a second-stage check: ask the local model itself whether the
+  # prompt needs cloud. Adds latency (~300-500ms) but catches semantic
+  # complexity that regex patterns miss. Falls back to local on any error.
+  enabled: true
+  timeout: 10.0
+
 classifier:
   max_local_length: 500
   # Prefixes (start of message) that always route locally regardless of
