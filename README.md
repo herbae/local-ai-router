@@ -2,12 +2,49 @@
 
 A FastAPI service that exposes an OpenAI-compatible API and routes prompts between a local model (Ollama + Gemma 4 E4B) and the Claude API based on prompt complexity. Designed to run on a developer laptop with a modest GPU.
 
-## How it works
+## The interesting bit: a two-stage classifier
 
-The router sits behind a standard `POST /v1/chat/completions` endpoint. A built-in heuristic classifier analyzes each prompt and decides where to send it:
+Most routers stop at regex heuristics. This one doesn't. The problem with heuristics is that they completely miss semantic complexity — *"explain the Taylor series of cos(x) step by step"* has no code, no `def`, no `import`, is under 500 characters — it looks trivial to regex, but it's firmly in cloud territory.
 
-- **Local (Gemma 4 E4B via Ollama)** — short prompts, translation, simple Q&A
-- **Cloud (Claude Sonnet via Anthropic API)** — code generation, long prompts, complex reasoning
+So the router runs **two classifier stages**:
+
+```
+                      ┌────────────────────────────────────┐
+     user prompt ──▶  │  1. Heuristics (fast, ~0ms)        │
+                      │     • /cloud, /local overrides     │
+                      │     • force_local_prefixes         │
+                      │     • code patterns                │
+                      │     • length > threshold           │
+                      └──────────────┬─────────────────────┘
+                                     │
+                    ┌────────────────┴─────────────────┐
+                    ▼                                  ▼
+          says "cloud" → Claude             says "local" → stage 2
+                                                       │
+                      ┌────────────────────────────────┴───┐
+                      │  2. LLM classifier (~300-500ms)    │
+                      │                                    │
+                      │  Asks Gemma itself:                │
+                      │  "LOCAL or CLOUD? one word."       │
+                      │                                    │
+                      │  • max_tokens=5, temperature=0     │
+                      │  • can only escalate local → cloud │
+                      │  • fails safe to local on error    │
+                      └──────────────┬─────────────────────┘
+                                     │
+                    ┌────────────────┴─────────────────┐
+                    ▼                                  ▼
+                 "cloud" → Claude              "local" → Gemma
+```
+
+Stage 1 catches the obvious stuff cheaply. Stage 2 catches semantic complexity — the tax is ~400ms of local compute (free, GPU-accelerated), and it can **only promote** a prompt from local to cloud, never the reverse. If anything goes wrong (timeout, parse error, Ollama down), it falls back to local so the router keeps working.
+
+Stage 2 is feature-flagged in `config.yaml` (`llm_classifier.enabled`) so you can run pure heuristics if you want to benchmark or save latency.
+
+## Routes at a glance
+
+- **Local (Gemma 4 E4B via Ollama)** — short prompts, translation, simple Q&A, definitions
+- **Cloud (Claude Sonnet via Anthropic API)** — code, complex reasoning, specialized expertise, long analysis
 
 You can also force a route by prefixing your prompt with `/cloud` or `/local`.
 
@@ -83,6 +120,15 @@ Route: cloud | Prompt: def fibonacci(n): write this with memoization...
 Route: cloud | Completed in 1.84s
 ```
 
+When the LLM classifier escalates a prompt that heuristics would have kept local:
+
+```
+LLM classifier raw output: 'CLOUD' -> first_word='CLOUD'
+LLM classifier escalated local -> cloud
+Route: cloud | Prompt: explain the Taylor series of cos(x) step by step
+Route: cloud | Completed in 5.21s
+```
+
 ## Forcing a route
 
 | Prefix    | Effect                          |
@@ -95,7 +141,7 @@ Example: `/cloud what is 2+2?` will hit Claude even though it's a trivially simp
 
 ## Configuration
 
-`config.yaml` controls the classifier and model choices:
+`config.yaml` controls both classifier stages and the model choices:
 
 ```yaml
 ollama:
@@ -105,16 +151,29 @@ ollama:
 claude:
   model: "claude-sonnet-4-20250514"
 
+# Stage 2: ask Gemma itself to classify prompts that pass heuristics
+llm_classifier:
+  enabled: true          # flip to false for pure heuristic mode
+  timeout: 10.0          # fall back to local if Gemma doesn't respond in time
+
+# Stage 1: cheap regex heuristics
 classifier:
-  max_local_length: 500
-  code_patterns:
+  max_local_length: 500  # longer than this → cloud
+  force_local_prefixes:  # always local, even if code-like (e.g. Open WebUI tasks)
+    - "### Task:"
+  code_patterns:         # substring match → cloud
     - "```"
     - "def "
     - "class "
     # ...
 ```
 
-Anything longer than `max_local_length` characters or containing one of the `code_patterns` substrings is sent to Claude. Everything else stays local.
+**Tuning ideas:**
+
+- Lower `max_local_length` to route more to cloud; raise it to trust local more
+- Add domain-specific `force_local_prefixes` (e.g. chat UI wrapper prompts)
+- Disable `llm_classifier.enabled` to measure pure heuristic accuracy
+- Edit the classifier system prompt in `app/llm_classifier.py` to tune Gemma's judgment
 
 After editing `config.yaml`, rebuild the router:
 
@@ -168,6 +227,6 @@ scripts/bootstrap.sh          # Pulls the local model
 ## Known limitations (this is a spike)
 
 - **No streaming** — responses arrive all at once, not token-by-token
-- **Simple classifier** — no token counting, no semantic analysis, just length + literal patterns
 - **No retries** — upstream errors bubble up as 502
 - **No conversation truncation** — long histories may exceed model context
+- **LLM classifier judgment is only as good as Gemma's self-awareness** — small models can be over-confident about what they can answer well. The system prompt in `app/llm_classifier.py` is a reasonable starting point, not a final tuning.
