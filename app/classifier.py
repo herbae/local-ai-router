@@ -16,6 +16,13 @@ def classify_prompt(
             return "local", content
         return "local"
 
+    # Force-local prefixes (e.g. Open WebUI background tasks)
+    for prefix in getattr(settings, "force_local_prefixes", []):
+        if message.startswith(prefix):
+            if strip_prefix:
+                return "local", content
+            return "local"
+
     # Code detection
     for pattern in settings.code_patterns:
         if pattern in message:

@@ -19,6 +19,7 @@ class Settings:
         classifier = self.config["classifier"]
         self.max_local_length = classifier["max_local_length"]
         self.code_patterns = classifier["code_patterns"]
+        self.force_local_prefixes = classifier.get("force_local_prefixes", [])
 
 
 settings = Settings()

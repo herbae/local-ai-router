@@ -7,6 +7,11 @@ claude:
 
 classifier:
   max_local_length: 500
+  # Prefixes (start of message) that always route locally regardless of
+  # length or code patterns. Useful for Open WebUI's auto-generated
+  # title/tag tasks so they don't burn cloud credits.
+  force_local_prefixes:
+    - "### Task:"
   code_patterns:
     - "```"
     - "def "
